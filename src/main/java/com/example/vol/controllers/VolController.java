@@ -4,11 +4,15 @@ import com.example.vol.dtos.VolDto;
 import com.example.vol.entities.Vol;
 import com.example.vol.services.VolService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/vols")
@@ -19,14 +23,24 @@ public class VolController {
     private final VolService volService;
 
     @GetMapping
-    public List<Vol> getAllVols(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime dateDepart,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime dateArrivee,
+    public Map<String, Object> getAllVols(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateDepart,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateArrivee,
             @RequestParam(required = false) String villeDepart,
             @RequestParam(required = false) String villeArrivee,
-            @RequestParam(required = false) String tri
+            Pageable pageable
     ) {
-        return volService.findAll(dateDepart, dateArrivee, villeDepart, villeArrivee, tri);
+        Page<Vol> page = volService.findAll(dateDepart, dateArrivee, villeDepart, villeArrivee, pageable);
+
+        Map<String, Object> response = new HashMap<>();
+        System.out.println(page);
+        response.put("content", page.getContent());
+        response.put("currentPage", page.getNumber());
+        response.put("totalItems", page.getTotalElements());
+        response.put("totalPages", page.getTotalPages());
+
+        return response;
+
     }
 
     @PostMapping

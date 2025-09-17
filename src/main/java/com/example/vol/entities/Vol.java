@@ -3,7 +3,7 @@ package com.example.vol.entities;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Entity
@@ -20,10 +20,10 @@ public class Vol {
     private UUID id;
 
     @Column(name = "date_depart", nullable = false)
-    private LocalDateTime dateDepart;
+    private LocalDate dateDepart;
 
     @Column(name = "date_arrivee", nullable = false)
-    private LocalDateTime dateArrivee;
+    private LocalDate dateArrivee;
 
     @Column(name = "ville_depart", nullable = false, length = 100)
     private String villeDepart;

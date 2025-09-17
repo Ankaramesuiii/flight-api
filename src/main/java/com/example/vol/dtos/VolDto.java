@@ -1,10 +1,10 @@
 package com.example.vol.dtos;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 public record VolDto(
-        LocalDateTime dateDepart,
-        LocalDateTime dateArrivee,
+        LocalDate dateDepart,
+        LocalDate dateArrivee,
         String villeDepart,
         String villeArrivee,
         Double prix,
