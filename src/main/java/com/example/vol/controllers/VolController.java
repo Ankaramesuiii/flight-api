@@ -33,7 +33,7 @@ public class VolController {
         Page<Vol> page = volService.findAll(dateDepart, dateArrivee, villeDepart, villeArrivee, pageable);
 
         Map<String, Object> response = new HashMap<>();
-        System.out.println(page);
+
         response.put("content", page.getContent());
         response.put("currentPage", page.getNumber());
         response.put("totalItems", page.getTotalElements());
@@ -45,15 +45,27 @@ public class VolController {
 
     @PostMapping
     public List<Vol> createVols(@RequestBody List<VolDto> volsDto) {
-        List<Vol> vols = volsDto.stream().map(dto -> Vol.builder()
-                .dateDepart(dto.dateDepart())
-                .dateArrivee(dto.dateArrivee())
-                .villeDepart(dto.villeDepart())
-                .villeArrivee(dto.villeArrivee())
-                .prix(dto.prix())
-                .tempsTrajet(dto.tempsTrajet())
-                .build()).toList();
+        List<Vol> vols = volsDto.stream().map(dto -> {
+            Vol.VolBuilder builder = Vol.builder()
+                    .dateDepart(dto.dateDepart())
+                    .dateArrivee(dto.dateArrivee())
+                    .villeDepart(dto.villeDepart())
+                    .villeArrivee(dto.villeArrivee())
+                    .prix(dto.prix())
+                    .tempsTrajet(dto.tempsTrajet());
+
+            if (dto.capacite() != null) {
+                builder.capacite(dto.capacite());
+            }
+
+            if (dto.placesRestantes() != null) {
+                builder.placesRestantes(dto.placesRestantes());
+            }
+
+            return builder.build();
+        }).toList();
 
         return volService.saveAll(vols);
     }
+
 }

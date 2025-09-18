@@ -8,5 +8,7 @@ public record VolDto(
         String villeDepart,
         String villeArrivee,
         Double prix,
-        Integer tempsTrajet
+        Integer tempsTrajet,
+        Integer capacite,
+        Integer placesRestantes
 ) {}

@@ -36,4 +36,23 @@ public class Vol {
 
     @Column(name = "temps_trajet", nullable = false)
     private Integer tempsTrajet; // en minutes
+
+    @Builder.Default
+    private Integer capacite = 180;
+
+    @Builder.Default
+    private Integer placesRestantes = 180;
+
+    /**
+     * Optimistic locking to prevent overbooking.
+     * When multiple users attempt to reserve seats on the same flight simultaneously,
+     * Hibernate uses the @Version field in the Vol entity to detect conflicts.
+     * If two transactions modify the same flight at the same time,
+     * one of them will fail with an OptimisticLockException.
+     * The @Retryable annotation automatically retries the reservation in case
+     * of such conflicts, up to 3 attempts with a short delay.
+     */
+    @Version
+    @Builder.Default
+    private Long version = 0L;
 }
