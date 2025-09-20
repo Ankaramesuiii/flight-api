@@ -1,0 +1,38 @@
+[
+  {
+    "villeDepart": "Tunis",
+    "villeArrivee": "Paris",
+    "dateDepart": "2025-10-01",
+    "dateArrivee": "2025-10-01",
+    "capacite": 180,
+    "placesRestantes": 180,
+    "prix": 350.0
+  },
+  {
+    "villeDepart": "Paris",
+    "villeArrivee": "Rome",
+    "dateDepart": "2025-10-02",
+    "dateArrivee": "2025-10-02",
+    "capacite": 150,
+    "placesRestantes": 120,
+    "prix": 220.0
+  },
+  {
+    "villeDepart": "Tunis",
+    "villeArrivee": "Istanbul",
+    "dateDepart": "2025-10-05",
+    "dateArrivee": "2025-10-05",
+    "capacite": 200,
+    "placesRestantes": 200,
+    "prix": 280.0
+  },
+  {
+    "villeDepart": "Madrid",
+    "villeArrivee": "New York",
+    "dateDepart": "2025-10-10",
+    "dateArrivee": "2025-10-10",
+    "capacite": 250,
+    "placesRestantes": 180,
+    "prix": 750.0
+  }
+]
