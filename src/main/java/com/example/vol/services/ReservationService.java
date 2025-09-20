@@ -5,21 +5,21 @@ import com.example.vol.entities.Reservation;
 import com.example.vol.entities.Vol;
 import com.example.vol.events.ReservationFailedEvent;
 import com.example.vol.events.ReservationSuccessEvent;
+import com.example.vol.exceptions.PlacesInsuffisantesException;
+import com.example.vol.exceptions.VolNotFoundException;
 import com.example.vol.repositories.ReservationRepository;
 import com.example.vol.repositories.VolRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
-import org.springframework.http.HttpStatus;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Recover;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
-import org.sqlite.SQLiteException;
 
 import java.util.UUID;
 
@@ -32,38 +32,46 @@ public class ReservationService {
     private final VolRepository volRepository;
     private final ApplicationEventPublisher eventPublisher;
 
+    /**
+     * Create a reservation.
+     * Retries only on DB/concurrency issues, NOT on domain exceptions.
+     */
     @Transactional
-    @Retryable(
-            value = {OptimisticLockingFailureException.class, SQLiteException.class, DataAccessException.class},
-            maxAttempts = 3,
-            backoff = @Backoff(delay = 100)
-    )
     public Reservation createReservation(ReservationDto dto) {
-        UUID volId;
-        try {
-            volId = UUID.fromString(dto.volId().toString());
-        } catch (IllegalArgumentException e) {
-            publishFailureAudit("INVALID-UUID", dto.email(), dto.nombrePlaces(), 0,
-                    "Invalid UUID format: " + dto.volId());
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid flight ID format");
+        if (dto.volId() == null) {
+            publishFailureAudit("NULL", dto.email(), dto.nombrePlaces(), 0,
+                    "Flight ID is null");
+            throw new IllegalArgumentException("Flight ID cannot be null");
         }
+
+        UUID volId = dto.volId();
 
         Vol vol = volRepository.findById(volId)
                 .orElseThrow(() -> {
-                    String errorMsg = "Flight not found with ID: " + volId;
-                    publishFailureAudit(dto.volId().toString(), dto.email(), dto.nombrePlaces(), 0, errorMsg);
-                    return new ResponseStatusException(HttpStatus.NOT_FOUND, errorMsg);
+                    publishFailureAudit(volId.toString(), dto.email(), dto.nombrePlaces(), 0,
+                            "Flight not found with ID: " + volId);
+                    return new VolNotFoundException(volId.toString());
                 });
 
         int availableBefore = vol.getPlacesRestantes();
-
         if (availableBefore < dto.nombrePlaces()) {
-            publishFailureAudit(dto.volId().toString(), dto.email(), dto.nombrePlaces(), availableBefore,
+            publishFailureAudit(volId.toString(), dto.email(), dto.nombrePlaces(), availableBefore,
                     "Not enough seats. Remaining: " + availableBefore);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Not enough seats available. Remaining: " + availableBefore);
+            // Domain exception is thrown directly
+            throw new PlacesInsuffisantesException(dto.nombrePlaces(), availableBefore);
         }
 
+        // DB operation wrapped in a private retryable method
+        return saveReservationWithRetry(dto, vol, availableBefore);
+    }
+
+    // Separate retryable method only for DB/concurrency
+    @Retryable(
+            value = {OptimisticLockingFailureException.class, DataAccessException.class},
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 100)
+    )
+    private Reservation saveReservationWithRetry(ReservationDto dto, Vol vol, int availableBefore) {
         vol.setPlacesRestantes(availableBefore - dto.nombrePlaces());
         volRepository.save(vol);
 
@@ -75,43 +83,33 @@ public class ReservationService {
                 .build();
 
         Reservation saved = reservationRepository.save(reservation);
-
         eventPublisher.publishEvent(new ReservationSuccessEvent(this, dto, availableBefore));
-
+        evictCache(vol.getId());
         return saved;
     }
 
-    // Recover methods
-    /**
-     * Recovery method for optimistic lock conflicts.
-     * This method is called automatically if all retries fail.
-     */
+    // ---------------------
+    // Retry recovery methods
+    // ---------------------
+    @Recover
+    public Reservation recoverDatabaseException(DataAccessException e, ReservationDto dto) {
+        publishFailureAudit(dto.volId() != null ? dto.volId().toString() : "NULL",
+                dto.email(), dto.nombrePlaces(), 0,
+                "Reservation failed due to database error: " + e.getMessage());
+        throw new RuntimeException("Reservation failed due to database error. Please try again.", e);
+    }
+
     @Recover
     public Reservation recoverOptimisticLock(OptimisticLockingFailureException e, ReservationDto dto) {
-        publishFailureAudit(dto.volId().toString(), dto.email(), dto.nombrePlaces(), 0,
-                "Reservation failed due to high concurrency");
-        throw new ResponseStatusException(HttpStatus.CONFLICT,
-                "Reservation failed due to high concurrency. Please try again.");
+        publishFailureAudit(dto.volId() != null ? dto.volId().toString() : "NULL",
+                dto.email(), dto.nombrePlaces(), 0,
+                "Reservation failed due to high concurrency: " + e.getMessage());
+        throw new RuntimeException("Reservation failed due to high concurrency. Please try again.", e);
     }
 
-    @Recover
-    public Reservation recoverSqliteLock(SQLiteException e, ReservationDto dto) {
-        publishFailureAudit(dto.volId().toString(), dto.email(), dto.nombrePlaces(), 0,
-                "Reservation failed due to SQLite database lock");
-        throw new ResponseStatusException(HttpStatus.CONFLICT,
-                "Reservation failed due to SQLite database lock. Please try again.");
-    }
-
-    @Recover
-    public Reservation recoverDataAccess(DataAccessException e, ReservationDto dto) {
-        publishFailureAudit(dto.volId().toString(), dto.email(), dto.nombrePlaces(), 0,
-                "Reservation failed due to database access error");
-        throw new ResponseStatusException(HttpStatus.CONFLICT,
-                "Reservation failed due to database access error. Please try again.");
-    }
-
-    // Audit publisher
-
+    // ---------------------
+    // Audit helper
+    // ---------------------
     private void publishFailureAudit(String volId, String email, int placesDemandees, int placesAvant, String msgErreur) {
         try {
             ReservationFailedEvent event = new ReservationFailedEvent(
@@ -127,5 +125,12 @@ public class ReservationService {
         } catch (Exception e) {
             log.error("Failed to publish audit event", e);
         }
+    }
+
+    // ---------------------
+    // Cache eviction
+    // ---------------------
+    @CacheEvict(cacheNames = "placesDisponibles", key = "#volId")
+    public void evictCache(UUID volId) {
     }
 }

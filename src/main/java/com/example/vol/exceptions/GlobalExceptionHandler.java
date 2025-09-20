@@ -6,6 +6,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.ServletWebRequest;
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestControllerAdvice
 @RequiredArgsConstructor
@@ -23,6 +25,7 @@ public class GlobalExceptionHandler {
 
     private final ApplicationEventPublisher eventPublisher;
 
+    // ------------------- ResponseStatusException -------------------
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<Map<String, Object>> handleResponseStatusException(
             ResponseStatusException ex, WebRequest request) {
@@ -32,6 +35,7 @@ public class GlobalExceptionHandler {
                 request);
     }
 
+    // ------------------- UUID invalid -------------------
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Map<String, Object>> handleInvalidUuid(
             HttpMessageNotReadableException ex, WebRequest request) {
@@ -40,11 +44,12 @@ public class GlobalExceptionHandler {
         if (cause instanceof com.fasterxml.jackson.databind.exc.InvalidFormatException ife
                 && UUID.class.equals(ife.getTargetType())) {
 
+            // 🔥 Publier un event d’échec dans l’audit
             eventPublisher.publishEvent(
                     new ReservationFailedEvent(
                             this,
                             "INVALID-UUID",
-                            null,   // no email
+                            null,   // pas d’email
                             0,
                             0,
                             "Invalid UUID format: " + ife.getValue()
@@ -59,6 +64,41 @@ public class GlobalExceptionHandler {
         throw ex;
     }
 
+    // ------------------- Exceptions métier personnalisées -------------------
+    @ExceptionHandler(VolNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleVolNotFound(VolNotFoundException ex, WebRequest request) {
+        return buildResponse(HttpStatus.NOT_FOUND.value(), ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(PlacesInsuffisantesException.class)
+    public ResponseEntity<Map<String, Object>> handlePlacesInsuffisantes(PlacesInsuffisantesException ex, WebRequest request) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", HttpStatus.BAD_REQUEST.value());
+        body.put("error", "BAD_REQUEST");
+        body.put("message", ex.getMessage());
+        body.put("path", ((ServletWebRequest) request).getRequest().getRequestURI());
+
+        return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+    }
+
+    // ------------------- Validation Bean (@Valid) -------------------
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidationErrors(MethodArgumentNotValidException ex, WebRequest request) {
+        String errors = ex.getBindingResult().getFieldErrors()
+                .stream()
+                .map(f -> f.getField() + ": " + f.getDefaultMessage())
+                .collect(Collectors.joining("; "));
+        return buildResponse(HttpStatus.BAD_REQUEST.value(), errors, request);
+    }
+
+    // ------------------- Generic Exception -------------------
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex, WebRequest request) {
+        return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR.value(), ex.getMessage(), request);
+    }
+
+    // ------------------- Helper -------------------
     private ResponseEntity<Map<String, Object>> buildResponse(
             int status, String message, WebRequest request) {
 
