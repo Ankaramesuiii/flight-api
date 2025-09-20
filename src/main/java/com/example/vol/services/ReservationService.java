@@ -5,6 +5,7 @@ import com.example.vol.entities.Reservation;
 import com.example.vol.entities.Vol;
 import com.example.vol.events.ReservationFailedEvent;
 import com.example.vol.events.ReservationSuccessEvent;
+import com.example.vol.exceptions.InvalidReservationArgumentException;
 import com.example.vol.exceptions.PlacesInsuffisantesException;
 import com.example.vol.exceptions.VolNotFoundException;
 import com.example.vol.repositories.ReservationRepository;
@@ -32,20 +33,25 @@ public class ReservationService {
     private final VolRepository volRepository;
     private final ApplicationEventPublisher eventPublisher;
 
-    /**
-     * Create a reservation.
-     * Retries only on DB/concurrency issues, NOT on domain exceptions.
-     */
+
     @Transactional
+    @Retryable(
+            value = {OptimisticLockingFailureException.class, DataAccessException.class},
+            maxAttempts = 3,
+            noRetryFor = {PlacesInsuffisantesException.class, InvalidReservationArgumentException.class, VolNotFoundException.class},
+            backoff = @Backoff(delay = 100)
+    )
     public Reservation createReservation(ReservationDto dto) {
         if (dto.volId() == null) {
             publishFailureAudit("NULL", dto.email(), dto.nombrePlaces(), 0,
                     "Flight ID is null");
-            throw new IllegalArgumentException("Flight ID cannot be null");
+            throw new InvalidReservationArgumentException("Flight ID cannot be null");
         }
 
         UUID volId = dto.volId();
 
+        // The entire logic, including fetching and checking, is now inside the retryable method.
+        // On a retry, the latest state of the Vol entity is fetched.
         Vol vol = volRepository.findById(volId)
                 .orElseThrow(() -> {
                     publishFailureAudit(volId.toString(), dto.email(), dto.nombrePlaces(), 0,
@@ -56,22 +62,11 @@ public class ReservationService {
         int availableBefore = vol.getPlacesRestantes();
         if (availableBefore < dto.nombrePlaces()) {
             publishFailureAudit(volId.toString(), dto.email(), dto.nombrePlaces(), availableBefore,
-                    "Not enough seats. Remaining: " + availableBefore);
-            // Domain exception is thrown directly
+                    "Not enough seats. Remaining: " + availableBefore + ", Requested: " + dto.nombrePlaces());
             throw new PlacesInsuffisantesException(dto.nombrePlaces(), availableBefore);
         }
 
-        // DB operation wrapped in a private retryable method
-        return saveReservationWithRetry(dto, vol, availableBefore);
-    }
-
-    // Separate retryable method only for DB/concurrency
-    @Retryable(
-            value = {OptimisticLockingFailureException.class, DataAccessException.class},
-            maxAttempts = 3,
-            backoff = @Backoff(delay = 100)
-    )
-    private Reservation saveReservationWithRetry(ReservationDto dto, Vol vol, int availableBefore) {
+        // The update and save are now part of the single method.
         vol.setPlacesRestantes(availableBefore - dto.nombrePlaces());
         volRepository.save(vol);
 

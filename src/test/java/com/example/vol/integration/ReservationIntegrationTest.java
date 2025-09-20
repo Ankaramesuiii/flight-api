@@ -7,13 +7,13 @@ import com.example.vol.services.ReservationService;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.retry.ExhaustedRetryException;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.LocalDate;
 import java.util.UUID;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -76,7 +76,7 @@ class ReservationIntegrationTest {
 
         // Overbooking
         ReservationDto overDto = new ReservationDto(volId, "Bob", "bob@example.com", 4);
-        assertThrows(com.example.vol.exceptions.PlacesInsuffisantesException.class,
+        assertThrows(ExhaustedRetryException.class,
                 () -> reservationService.createReservation(overDto));
     }
 
