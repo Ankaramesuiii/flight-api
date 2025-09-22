@@ -1,3 +1,6 @@
+Owner : Mohamed Aziz Belhaj
+Email : mohamed.aziz.belhajj@gmail.com
+
 Flight App - Backend (Spring Boot + SQLite)
 ## Prérequis
 - Java 17+
